@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Live Map — Climate Disaster Monitor</title>
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body class="dark">
+  <header>
+    <h1>Climate Disaster Monitor</h1>
+    <nav>
+      <a href="index.html">Home</a>
+      <a href="map.html" class="active">Live Map</a>
+      <a href="about.html">About</a>
+    </nav>
+  </header>
+
+  <main class="map-page">
+    <div class="map-area">
+      <div id="map"></div>
+    </div>
+
+    <aside class="control-panel">
+      <section class="panel-section">
+        <h3>Layers</h3>
+        <label class="check">
+          <input type="checkbox" id="filter-flood" checked />
+          <span class="dot flood"></span> Flood sensors
+        </label>
+        <label class="check">
+          <input type="checkbox" id="filter-fire" checked />
+          <span class="dot fire"></span> Wildfires
+        </label>
+        <label class="check">
+          <input type="checkbox" id="filter-forest-sensor" checked />
+          <span class="dot sensor"></span> Forest sensors
+        </label>
+        <label class="check">
+          <input type="checkbox" id="filter-drone-range" checked />
+          <span class="dot drone"></span> Drone ranges
+        </label>
+      </section>
+
+      <section class="panel-section">
+        <h3>Report a wildfire</h3>
+        <button id="add-wildfire-btn" class="btn">Click map to add</button>
+        <p class="hint">A new report dispatches the closest in-range drone for verification.</p>
+      </section>
+
+      <section class="panel-section">
+        <h3>Sensor mesh</h3>
+        <label class="check">
+          <input type="checkbox" id="mesh-toggle" checked />
+          Forest mesh active
+        </label>
+        <p class="hint">Sensors detect possible wildfires within their radius and trigger drone verification.</p>
+      </section>
+
+      <section class="panel-section">
+        <h3>Drone fleet</h3>
+        <ul id="drone-fleet" class="fleet"></ul>
+        <p class="hint">Closest in-range, sufficiently-charged drone responds. Drones recharge while idle.</p>
+      </section>
+
+      <section class="panel-section">
+        <h3>Activity log</h3>
+        <ul id="activity-log" class="log">
+          <li class="log-empty">No activity yet.</li>
+        </ul>
+      </section>
+    </aside>
+  </main>
+
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+  ></script>
+  <script src="config.js"></script>
+  <script src="sensors.js"></script>
+  <script src="map.js"></script>
+</body>
+</html>

@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Climate Disaster Monitor — Romania</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body class="dark">
+  <header>
+    <h1>Climate Disaster Monitor</h1>
+    <nav>
+      <a href="index.html" class="active">Home</a>
+      <a href="map.html">Live Map</a>
+      <a href="about.html">About</a>
+    </nav>
+  </header>
+
+  <div class="globe-bg" aria-hidden="true">
+    <canvas id="globe-canvas"></canvas>
+  </div>
+
+  <main class="home">
+    <section class="hero">
+      <span class="eyebrow">Realtime monitoring · Romania</span>
+      <h2>Detect, verify, respond.</h2>
+      <p>
+        A mesh of forest sensors and flood gauges raises alerts in real time.
+        The closest drone in range investigates and confirms before emergency
+        services are notified.
+      </p>
+      <div class="cta-row">
+        <a href="map.html" class="cta primary">Open Live Map →</a>
+        <a href="about.html" class="cta ghost">How it works</a>
+      </div>
+    </section>
+
+    <section class="features">
+      <span class="eyebrow">The pipeline</span>
+      <h3>Three stages, one map.</h3>
+      <div class="feature-grid">
+        <div class="feature">
+          <span class="step">01</span>
+          <h4>Detect</h4>
+          <p>
+            A mesh of forest sensors continuously scans for ignition signatures.
+            Flood gauges along the Danube, Someș, and Bega watch water levels.
+          </p>
+        </div>
+        <div class="feature">
+          <span class="step">02</span>
+          <h4>Verify</h4>
+          <p>
+            Each report is investigated by the nearest available drone. Range
+            and battery are taken into account when picking the responder.
+          </p>
+        </div>
+        <div class="feature">
+          <span class="step">03</span>
+          <h4>Respond</h4>
+          <p>
+            Confirmed events trigger emergency services. False alarms close
+            silently — without ever waking a dispatcher.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section class="cta-section">
+      <h3>Watch the system work</h3>
+      <p>Sensors trigger automatically. Drone moves in real time. Click on the map to file your own report.</p>
+      <a href="map.html" class="cta primary large">Open Live Map →</a>
+    </section>
+  </main>
+
+  <footer>
+    <p>&copy; 2026 Climate Disaster Monitor</p>
+  </footer>
+
+  <script src="https://unpkg.com/three@0.139.0/build/three.min.js"></script>
+  <script src="config.js"></script>
+  <script src="globe.js"></script>
+</body>
+</html>
