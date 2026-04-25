@@ -23,11 +23,11 @@
   <main class="home">
     <section class="hero">
       <span class="eyebrow">Realtime monitoring · Romania</span>
-      <h2>Detect, verify, respond.</h2>
+      <h2>Define a zone. Cover it.</h2>
       <p>
-        A mesh of forest sensors and flood gauges raises alerts in real time.
-        The closest drone in range investigates and confirms before emergency
-        services are notified.
+        Draw a forest or flood monitoring zone anywhere on the map. The system
+        fills it with a hex grid of sensors, then streams live CO₂, temperature,
+        humidity, water level, and flow data from every node.
       </p>
       <div class="cta-row">
         <a href="map.html" class="cta primary">Open Live Map →</a>
@@ -41,34 +41,34 @@
       <div class="feature-grid">
         <div class="feature">
           <span class="step">01</span>
-          <h4>Detect</h4>
+          <h4>Place</h4>
           <p>
-            A mesh of forest sensors continuously scans for ignition signatures.
-            Flood gauges along the Danube, Someș, and Bega watch water levels.
+            Pick a sensor type and radius, click anywhere on the map. The zone
+            is persisted and rendered in real time.
           </p>
         </div>
         <div class="feature">
           <span class="step">02</span>
-          <h4>Verify</h4>
+          <h4>Fill</h4>
           <p>
-            Each report is investigated by the nearest available drone. Range
-            and battery are taken into account when picking the responder.
+            A hex grid of sensors covers the entire area. Each one gets an ID,
+            a position, and a detection radius — no manual placement needed.
           </p>
         </div>
         <div class="feature">
           <span class="step">03</span>
-          <h4>Respond</h4>
+          <h4>Stream</h4>
           <p>
-            Confirmed events trigger emergency services. False alarms close
-            silently — without ever waking a dispatcher.
+            Hover any sensor to see live readings. Every metric is persisted to
+            PostgreSQL with full history.
           </p>
         </div>
       </div>
     </section>
 
     <section class="cta-section">
-      <h3>Watch the system work</h3>
-      <p>Sensors trigger automatically. Drone moves in real time. Click on the map to file your own report.</p>
+      <h3>See the mesh in action</h3>
+      <p>Create zones, place sensors, watch the metrics tick.</p>
       <a href="map.html" class="cta primary large">Open Live Map →</a>
     </section>
   </main>
@@ -78,7 +78,7 @@
   </footer>
 
   <script src="https://unpkg.com/three@0.139.0/build/three.min.js"></script>
-  <script src="config.js"></script>
+  <script src="ui-config.js"></script>
   <script src="globe.js"></script>
 </body>
 </html>

@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Login — Climate Disaster Monitor</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body class="dark">
+  <header>
+    <h1>Climate Disaster Monitor</h1>
+  </header>
+
+  <main class="login-page">
+    <div class="login-card">
+      <span class="eyebrow">Access required</span>
+      <h2>Sign in</h2>
+      <p class="login-sub">Enter your credentials to continue.</p>
+
+      <form id="login-form" autocomplete="on">
+        <div class="field">
+          <span>Username</span>
+          <input type="text" id="username" name="username" autocomplete="username"
+                 placeholder="username" required />
+        </div>
+        <div class="field">
+          <span>Password</span>
+          <input type="password" id="password" name="password" autocomplete="current-password"
+                 placeholder="••••••••" required />
+        </div>
+        <div id="login-error" class="login-error" hidden></div>
+        <button type="submit" class="btn btn-login" id="submit-btn">Sign in</button>
+      </form>
+    </div>
+  </main>
+
+  <footer>
+    <p>&copy; 2026 Climate Disaster Monitor</p>
+  </footer>
+
+  <script>
+    // If already logged in with valid token, skip login
+    (async () => {
+      const token = localStorage.getItem("cdm_token");
+      if (!token) return;
+      try {
+        const r = await fetch("/api/me", { headers: { Authorization: `Bearer ${token}` } });
+        if (r.ok) { window.location.replace("map.html"); }
+      } catch {}
+    })();
+
+    document.getElementById("login-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById("submit-btn");
+      const errEl = document.getElementById("login-error");
+      errEl.hidden = true;
+      btn.disabled = true;
+      btn.textContent = "Signing in…";
+
+      try {
+        const res = await fetch("/api/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            username: document.getElementById("username").value.trim(),
+            password: document.getElementById("password").value,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Login failed");
+
+        localStorage.setItem("cdm_token", data.token);
+        localStorage.setItem("cdm_role",  data.role);
+        localStorage.setItem("cdm_user",  data.username);
+        window.location.replace("map.html");
+      } catch (err) {
+        errEl.textContent = err.message;
+        errEl.hidden = false;
+        btn.disabled = false;
+        btn.textContent = "Sign in";
+      }
+    });
+  </script>
+</body>
+</html>

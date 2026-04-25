@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>About — Climate Disaster Monitor</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body class="dark">
+  <header>
+    <h1>Climate Disaster Monitor</h1>
+    <nav>
+      <a href="index.html">Home</a>
+      <a href="map.html">Live Map</a>
+      <a href="about.html" class="active">About</a>
+    </nav>
+  </header>
+
+  <main class="content">
+    <span class="eyebrow">About</span>
+    <h2>How the system works</h2>
+    <p>
+      Two kinds of monitoring zones are supported: <em>forest</em> (wildfire
+      precursors) and <em>flood</em> (water bodies). You define a zone on the
+      map; the system fills it with a hex grid of sensors that stream live
+      readings to a PostgreSQL store.
+    </p>
+
+    <h3>Place → fill → stream</h3>
+    <ol>
+      <li>
+        Pick a sensor type and radius in the control panel, then click anywhere
+        on the map. The zone is persisted with its center, radius, and type.
+      </li>
+      <li>
+        The server computes a hex grid that fully covers the zone. Each cell
+        gets a sensor with a unique ID, GPS coordinates, and a fixed detection
+        radius (set per type in <code>config.js</code>).
+      </li>
+      <li>
+        Each sensor emits a periodic reading. Forest sensors track CO₂,
+        temperature, humidity, and a smoke index; flood sensors track water
+        level, flow rate, temperature, and turbidity. Hover any sensor on the
+        map to see the latest reading.
+      </li>
+      <li>
+        Every reading updates the in-memory state and is persisted to a
+        history table. Delete a zone and all its sensors disappear from both
+        the map and the database.
+      </li>
+    </ol>
+
+    <h3>Configuration</h3>
+    <p>
+      Per-type sensor radius, reading interval, battery drain, and zone bounds
+      live in <code>server/config.js</code>. Edit and restart the server.
+    </p>
+
+    <h3>Database</h3>
+    <p>
+      PostgreSQL 16 stores zones, sensors (with latest metrics as JSONB), an
+      append-only <code>sensor_readings</code> history table, and an
+      <code>events</code> activity log. Schema in
+      <code>server/schema.sql</code>.
+    </p>
+  </main>
+
+  <footer>
+    <p>&copy; 2026 Climate Disaster Monitor</p>
+  </footer>
+</body>
+</html>

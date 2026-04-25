@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node --check client.js)",
+      "Bash(node --check ui-config.js)",
+      "Bash(node --check globe.js)",
+      "Bash(node -e ' *)",
+      "Bash(node -e \"require\\('./config'\\); require\\('./weather'\\); require\\('./sim'\\); console.log\\('modules ok'\\)\")",
+      "Bash(timeout 5 node server.js)",
+      "Bash(timeout 4 node server/server.js)",
+      "Bash(node -e \"require\\('./sim'\\); require\\('./auth'\\); require\\('./weather'\\); console.log\\('ok'\\)\")"
+    ]
+  }
+}

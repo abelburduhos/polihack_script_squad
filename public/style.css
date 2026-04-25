@@ -15,7 +15,7 @@
   --accent-soft:  rgba(95, 179, 248, 0.12);
   --flood:        #4aa3d6;
   --fire:         #ff6b3a;
-  --drone:        #c0c8d0;
+  --station:      #a78bfa;
   --confirm:      #ff5b3b;
   --deny:         #6b7682;
   --pending:      #ffb340;
@@ -27,6 +27,7 @@
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
+[hidden] { display: none !important; }
 html, body { height: 100%; }
 
 body {
@@ -345,10 +346,12 @@ main.map-page {
   height: 10px;
   border-radius: 50%;
 }
-.dot.flood  { background: var(--flood); }
-.dot.fire   { background: var(--fire); }
-.dot.sensor { background: var(--sensor); }
-.dot.drone  { background: var(--drone); }
+.dot.flood          { background: var(--flood); }
+.dot.fire           { background: var(--fire); }
+.dot.sensor         { background: var(--sensor); }
+.dot.station        { background: var(--station); }
+.dot.station-range  { background: transparent; border: 1px dashed var(--station); }
+.dot.sensor-radius  { background: transparent; border: 1px dashed var(--muted); }
 
 .btn {
   width: 100%;
@@ -688,13 +691,405 @@ footer {
   .features, .cta-section { padding: 4rem 1.25rem; }
 }
 
-/* Custom scrollbars (subtle) */
-.log::-webkit-scrollbar,
-.control-panel::-webkit-scrollbar { width: 8px; }
-.log::-webkit-scrollbar-thumb,
-.control-panel::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 4px;
+/* ---------- Form fields ---------- */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+  margin-bottom: 0.7rem;
 }
+.field span { color: var(--text); font-weight: 500; }
+.field select,
+.field input[type="text"],
+.field input[type="range"] {
+  width: 100%;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.4rem 0.5rem;
+  font-size: 0.88rem;
+  accent-color: var(--accent);
+}
+.field input[type="range"] { padding: 0; }
+.field output { color: var(--accent); font-variant-numeric: tabular-nums; }
+
+/* ---------- Count badge ---------- */
+.count {
+  display: inline-block;
+  margin-left: 0.4rem;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 0.7rem;
+  padding: 0 0.4rem;
+  border-radius: 8px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* ---------- Generic item list (stations, sensors) ---------- */
+.item-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.item-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  font-size: 0.82rem;
+}
+.item-row.type-wildfire { border-left: 3px solid var(--fire); }
+.item-row.type-flood    { border-left: 3px solid var(--flood); }
+.item-row.type-station  { border-left: 3px solid var(--station); }
+.item-row.alarm-row     { border-color: var(--confirm); background: rgba(255, 91, 59, 0.06); }
+.item-id   { font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.item-meta { flex: 1; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item-station {
+  display: inline-block;
+  font-size: 0.72rem;
+  background: rgba(167, 139, 250, 0.15);
+  color: var(--station);
+  border-radius: 4px;
+  padding: 0 0.35rem;
+  margin-left: 0.25rem;
+}
+.item-del {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 0.95rem;
+  line-height: 1;
+  padding: 0;
+  flex-shrink: 0;
+  transition: color 0.15s, border-color 0.15s;
+}
+.item-del:hover { color: var(--confirm); border-color: var(--confirm); }
+
+/* ---------- Signal station map marker ---------- */
+.station-marker-wrap {
+  background: transparent !important;
+  border: none !important;
+}
+.station-marker {
+  width: 40px; height: 40px;
+  background: linear-gradient(135deg, #5b21b6, #7c3aed);
+  border: 2px solid #a78bfa;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 0 3px rgba(167,139,250,0.22), 0 3px 10px rgba(0,0,0,0.55);
+  font-size: 19px;
+  cursor: default;
+}
+.station-label {
+  display: none;
+}
+.station-tip { font-size: 0.82rem; line-height: 1.5; }
+
+/* ---------- Alarm list ---------- */
+.alarm-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.alarm-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  font-size: 0.8rem;
+}
+.alarm-item.alarm-pending { border-color: rgba(255,179,64,0.4); background: rgba(255,179,64,0.05); }
+.alarm-item.alarm-real    { border-color: rgba(255,59,26,0.5);  background: rgba(255,59,26,0.07); }
+.alarm-item.alarm-false   { border-color: rgba(62,196,139,0.3); background: rgba(62,196,139,0.04); opacity: 0.75; }
+.alarm-icon { font-size: 1rem; flex-shrink: 0; line-height: 1.4; }
+.alarm-body { flex: 1; line-height: 1.4; }
+.alarm-type {
+  font-size: 0.72rem;
+  color: var(--muted);
+  text-transform: capitalize;
+}
+.alarm-reason {
+  display: block;
+  color: var(--muted);
+  font-size: 0.75rem;
+  margin-top: 0.1rem;
+}
+.alarm-time {
+  font-size: 0.72rem;
+  color: var(--muted);
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Sensor alarm pulse (SVG path element) ---------- */
+@keyframes alarm-blink {
+  0%, 100% { fill-opacity: 0.95; }
+  50%       { fill-opacity: 0.3; }
+}
+.alarm-pulse { animation: alarm-blink 0.75s ease-in-out infinite; }
+
+/* ---------- Sensor tooltip ---------- */
+.sensor-tooltip { max-width: 250px; }
+.sensor-tip-head {
+  font-size: 0.85rem;
+  margin-bottom: 0.35rem;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.tip-station {
+  font-size: 0.72rem;
+  background: rgba(167,139,250,0.15);
+  color: var(--station);
+  border-radius: 4px;
+  padding: 0 0.35rem;
+}
+.tip-alarm {
+  font-size: 0.72rem;
+  background: rgba(255,59,26,0.2);
+  color: #ff7060;
+  border-radius: 4px;
+  padding: 0 0.35rem;
+  font-weight: 600;
+}
+.sensor-tip-foot {
+  margin-top: 0.4rem;
+  padding-top: 0.35rem;
+  border-top: 1px dashed var(--border);
+  font-size: 0.72rem;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+table.metrics { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+table.metrics td { padding: 0.12rem 0; vertical-align: middle; }
+table.metrics td:first-child { color: var(--muted); padding-right: 0.6rem; }
+table.metrics .unit { color: var(--muted); font-size: 0.7rem; }
+
+/* ---------- Custom scrollbars ---------- */
+.log::-webkit-scrollbar,
+.item-list::-webkit-scrollbar,
+.alarm-list::-webkit-scrollbar,
+.control-panel::-webkit-scrollbar { width: 6px; }
+.log::-webkit-scrollbar-thumb,
+.item-list::-webkit-scrollbar-thumb,
+.alarm-list::-webkit-scrollbar-thumb,
+.control-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
 .log::-webkit-scrollbar-track,
+.item-list::-webkit-scrollbar-track,
+.alarm-list::-webkit-scrollbar-track,
 .control-panel::-webkit-scrollbar-track { background: transparent; }
+
+/* ============================================================================
+   Sensor comm-range dot
+   ========================================================================== */
+.dot.sensor-comm { background: linear-gradient(90deg, var(--fire), var(--flood)); }
+
+/* ============================================================================
+   Header actions (admin button)
+   ========================================================================== */
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+.user-badge {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  padding: 0.22rem 0.6rem;
+  border-radius: 6px;
+  border: 1px solid rgba(255,107,58,0.45);
+  color: #ffb07a;
+  background: rgba(255,107,58,0.08);
+  text-transform: uppercase;
+}
+.btn-admin {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  padding: 0.28rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.btn-admin:hover { color: var(--text); border-color: var(--accent); }
+
+/* hidden sections */
+.hidden { display: none !important; }
+
+/* ============================================================================
+   Login page
+   ========================================================================== */
+
+.login-page {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  position: relative;
+  z-index: 1;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 380px;
+  background: linear-gradient(180deg, var(--surface), var(--bg-elev));
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 2.2rem 2rem;
+  box-shadow: var(--shadow-lg);
+}
+
+.login-card h2 {
+  font-size: 1.65rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin-bottom: 0.4rem;
+}
+
+.login-sub {
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin-bottom: 1.6rem;
+}
+
+.btn-login {
+  width: 100%;
+  margin-top: 0.4rem;
+  padding: 0.7rem;
+  background: var(--accent);
+  color: #001020;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+}
+.btn-login:hover:not(:disabled) { background: #7dc1fa; transform: translateY(-1px); }
+.btn-login:disabled { opacity: 0.55; cursor: default; }
+
+.login-error {
+  background: rgba(255, 91, 59, 0.12);
+  border: 1px solid rgba(255, 91, 59, 0.35);
+  color: #ff7060;
+  border-radius: 7px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.85rem;
+  margin-bottom: 0.6rem;
+}
+
+/* ============================================================================
+   Admin login modal (inline overlay)
+   ========================================================================== */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(5, 8, 16, 0.75);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+}
+.modal-card {
+  position: relative;
+  width: 100%;
+  max-width: 360px;
+  background: linear-gradient(180deg, var(--surface), var(--bg-elev));
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 2rem 1.8rem;
+  box-shadow: var(--shadow-lg);
+}
+.modal-close {
+  position: absolute;
+  top: 1rem; right: 1rem;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.modal-close:hover { color: var(--confirm); border-color: var(--confirm); }
+
+/* ============================================================================
+   Sensor detail panel
+   ========================================================================== */
+
+.panel-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+.detail-close {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1;
+  padding: 0;
+  transition: color 0.15s, border-color 0.15s;
+}
+.detail-close:hover { color: var(--confirm); border-color: var(--confirm); }
+
+.detail-conn-badge {
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 0.25rem 0.6rem;
+  border-radius: 6px;
+  display: inline-block;
+  margin-bottom: 0.3rem;
+}
+.detail-conn-badge.conn-yes { background: rgba(62,196,139,0.12); color: #3ec48b; border: 1px solid rgba(62,196,139,0.3); }
+.detail-conn-badge.conn-no  { background: rgba(255,179,64,0.1);  color: #ffb340; border: 1px solid rgba(255,179,64,0.35); }
+
+/* ============================================================================
+   Disconnected sensor indicators
+   ========================================================================== */
+
+.item-row.disconnected { opacity: 0.65; }
+.item-disconn {
+  color: #ffb340;
+  font-size: 0.75rem;
+  margin-left: 0.25rem;
+}

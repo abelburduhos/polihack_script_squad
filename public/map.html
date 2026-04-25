@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Live Map — Climate Disaster Monitor</title>
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body class="dark">
+  <header>
+    <h1>Climate Disaster Monitor</h1>
+    <nav>
+      <a href="index.html">Home</a>
+      <a href="map.html" class="active">Live Map</a>
+      <a href="about.html">About</a>
+    </nav>
+    <div class="header-actions">
+      <span id="user-badge" class="user-badge hidden">ADMIN</span>
+      <button id="admin-btn" class="btn-admin">Admin Login</button>
+    </div>
+  </header>
+
+  <!-- Admin login modal -->
+  <div id="admin-modal" class="modal-overlay" hidden>
+    <div class="modal-card">
+      <button id="modal-close-btn" class="modal-close" title="Close">×</button>
+      <span class="eyebrow">Privileged access</span>
+      <h2>Admin Login</h2>
+      <p class="login-sub">Unlock station and sensor placement.</p>
+      <form id="admin-form" autocomplete="on">
+        <div class="field">
+          <span>Username</span>
+          <input type="text" id="modal-username" autocomplete="username" placeholder="admin" required />
+        </div>
+        <div class="field">
+          <span>Password</span>
+          <input type="password" id="modal-password" autocomplete="current-password" placeholder="••••••" required />
+        </div>
+        <div id="modal-error" class="login-error" hidden></div>
+        <button type="submit" class="btn btn-login" id="modal-submit">Sign in as Admin</button>
+      </form>
+    </div>
+  </div>
+
+  <main class="map-page">
+    <div class="map-area">
+      <div id="map"></div>
+    </div>
+
+    <aside class="control-panel">
+
+      <!-- Layers -->
+      <section class="panel-section">
+        <h3>Layers</h3>
+        <label class="check">
+          <input type="checkbox" id="filter-wildfire" checked />
+          <span class="dot fire"></span> Wildfire sensors
+        </label>
+        <label class="check">
+          <input type="checkbox" id="filter-flood" checked />
+          <span class="dot flood"></span> Flood sensors
+        </label>
+        <label class="check">
+          <input type="checkbox" id="filter-stations" checked />
+          <span class="dot station"></span> Signal stations
+        </label>
+        <label class="check">
+          <input type="checkbox" id="filter-sensor-comm" checked />
+          <span class="dot sensor-comm"></span> Sensor comm ranges
+        </label>
+        <label class="check">
+          <input type="checkbox" id="filter-sensor-radius" />
+          <span class="dot sensor-radius"></span> Sensor detection radii
+        </label>
+      </section>
+
+      <!-- Sensor detail (appears on sensor click) -->
+      <section class="panel-section" id="sensor-detail-section" hidden>
+        <div class="panel-section-head">
+          <h3 style="margin-bottom:0">Sensor <span id="detail-id"></span></h3>
+          <button id="detail-close" class="detail-close" title="Close">×</button>
+        </div>
+        <div id="detail-conn" class="detail-conn-badge"></div>
+        <div id="detail-range-wrap" hidden>
+          <label class="field" style="margin-top:0.6rem">
+            <span>Comm range: <output id="detail-range-out">2.0 km</output></span>
+            <input type="range" id="detail-range" min="200" max="20000" step="100" value="2000" />
+          </label>
+        </div>
+      </section>
+
+      <!-- Place signal station (admin only) -->
+      <section class="panel-section hidden" id="place-station-section">
+        <h3>Place Signal Station</h3>
+        <label class="field">
+          <span>Name (optional)</span>
+          <input type="text" id="station-name" placeholder="Auto-assigned" maxlength="40" />
+        </label>
+        <button id="place-station-btn" class="btn">Click map to place</button>
+      </section>
+
+      <!-- Place sensor (admin only) -->
+      <section class="panel-section hidden" id="place-sensor-section">
+        <h3>Place Sensor</h3>
+        <label class="field">
+          <span>Type</span>
+          <select id="sensor-type">
+            <option value="wildfire">Wildfire (CO₂ / smoke / temp)</option>
+            <option value="flood">Flood (level / flow / turbidity)</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Assign to station</span>
+          <select id="sensor-station">
+            <option value="">— None —</option>
+          </select>
+        </label>
+        <button id="place-sensor-btn" class="btn">Click map to place</button>
+        <p class="hint">Hover a sensor to see live readings.</p>
+      </section>
+
+      <!-- Signal stations list -->
+      <section class="panel-section">
+        <h3>Signal Stations <span id="station-count" class="count">0</span></h3>
+        <ul id="station-list" class="item-list">
+          <li class="log-empty">No stations yet.</li>
+        </ul>
+      </section>
+
+      <!-- Sensors list -->
+      <section class="panel-section">
+        <h3>Sensors <span id="sensor-count" class="count">0</span></h3>
+        <ul id="sensor-list" class="item-list">
+          <li class="log-empty">No sensors yet.</li>
+        </ul>
+      </section>
+
+      <!-- Alarms -->
+      <section class="panel-section">
+        <h3>Alarms <span id="alarm-count" class="count">0</span></h3>
+        <ul id="alarm-list" class="alarm-list">
+          <li class="log-empty">No alarms.</li>
+        </ul>
+      </section>
+
+      <!-- Activity log -->
+      <section class="panel-section">
+        <h3>Activity log</h3>
+        <ul id="activity-log" class="log">
+          <li class="log-empty">No activity yet.</li>
+        </ul>
+      </section>
+
+    </aside>
+  </main>
+
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+  ></script>
+  <script src="ui-config.js?v=4"></script>
+  <script src="client.js?v=4"></script>
+</body>
+</html>
