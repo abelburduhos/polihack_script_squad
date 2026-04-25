@@ -27,12 +27,20 @@ function applyAdminUI() {
   badge.classList.toggle("hidden", !isAdmin);
   adminBtn.textContent = isAdmin ? "Logout Admin" : "Admin Login";
 
-  document.getElementById("place-station-section").classList.toggle("hidden", !isAdmin);
-  document.getElementById("place-sensor-section").classList.toggle("hidden", !isAdmin);
+  // Admin-only sidebar sections
+  const adminSections = [
+    "place-station-section", "place-sensor-section",
+    "station-list-section", "sensor-list-section",
+    "activity-log-section",
+  ];
+  for (const id of adminSections)
+    document.getElementById(id).classList.toggle("hidden", !isAdmin);
 
   // Refresh lists to add/remove delete buttons
   refreshStationList();
   refreshSensorList();
+  refreshReportList();
+  refreshOfficialAlertList();
 }
 
 // ===== Map =====
@@ -263,8 +271,7 @@ const stationCountEl = document.getElementById("station-count");
 const stationListEl  = document.getElementById("station-list");
 const sensorCountEl  = document.getElementById("sensor-count");
 const sensorListEl   = document.getElementById("sensor-list");
-const alarmCountEl   = document.getElementById("alarm-count");
-const alarmListEl    = document.getElementById("alarm-list");
+// alarmMap tracks state for sensor pulsing — no dedicated list rendered
 
 function refreshStationList() {
   stationCountEl.textContent = stationViews.size;
@@ -317,20 +324,10 @@ function refreshStationSelect() {
 
 function upsertAlarm(a) {
   alarmMap.set(a.id, a);
-  refreshAlarmList();
-}
-function refreshAlarmList() {
-  const alarms = [...alarmMap.values()].sort((a, b) => new Date(b.ts) - new Date(a.ts)).slice(0, 30);
-  alarmCountEl.textContent = alarms.filter(a => a.verdict === "pending" || a.verdict === "real").length;
-  alarmListEl.innerHTML = alarms.length ? "" : '<li class="log-empty">No alarms.</li>';
-  for (const a of alarms) {
-    const vC = { pending: "alarm-pending", real: "alarm-real", false_alarm: "alarm-false" }[a.verdict] || "";
-    const vI = { pending: "⏳", real: "🔴", false_alarm: "✅" }[a.verdict] || "?";
-    const ts = new Date(a.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    const li = document.createElement("li");
-    li.className = `alarm-item ${vC}`;
-    li.innerHTML = `<span class="alarm-icon">${vI}</span><span class="alarm-body"><strong>${a.sensorId}</strong> <span class="alarm-type">${a.type}</span><br><span class="alarm-reason">${a.weatherReason || "Evaluating…"}</span></span><span class="alarm-time">${ts}</span>`;
-    alarmListEl.appendChild(li);
+  // Log verdict to activity log when resolved
+  if (a.verdict === "real" || a.verdict === "false_alarm") {
+    const icon = a.verdict === "real" ? "🔴" : "✅";
+    appendLog(`${icon} Sensor ${a.sensorId} alarm: ${a.verdict.replace("_", " ")}${a.weatherReason ? " — " + a.weatherReason : ""}`, a.verdict === "real" ? "confirm" : "deny");
   }
 }
 
@@ -372,22 +369,47 @@ function removeOfficialAlert(id) {
 }
 
 function refreshOfficialAlertList() {
-  const alerts = [...officialAlertViews.values()].filter(a => a.active).sort((a, b) => new Date(b.ts) - new Date(a.ts));
-  officialAlertCountEl.textContent = alerts.length;
-  officialAlertListEl.innerHTML = alerts.length ? "" : '<li class="log-empty">No active alerts.</li>';
-  for (const a of alerts) {
-    const color = a.type === "wildfire" ? "var(--fire)" : "var(--flood)";
+  // AI-confirmed sensor alarms
+  const sensorAlerts = [...officialAlertViews.values()].filter(a => a.active);
+  // Admin-confirmed user reports
+  const reportAlerts = [...reportViews.values()].filter(r => r.status === "confirmed");
+
+  const total = sensorAlerts.length + reportAlerts.length;
+  officialAlertCountEl.textContent = total;
+  officialAlertListEl.innerHTML = total ? "" : '<li class="log-empty">No active alerts.</li>';
+
+  const allItems = [
+    ...sensorAlerts.map(a => ({ ...a, _kind: "sensor" })),
+    ...reportAlerts.map(r => ({ ...r, _kind: "report" })),
+  ].sort((a, b) => new Date(b.ts) - new Date(a.ts));
+
+  for (const item of allItems) {
+    const color = item.type === "wildfire" ? "var(--fire)" : "var(--flood)";
+    const ts = new Date(item.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     const li = document.createElement("li");
-    li.className = `official-alert-item type-${a.type}`;
-    const ts = new Date(a.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    li.innerHTML =
-      `<div class="oa-header">` +
-      `<span class="oa-verdict" style="color:${color}">${a.verdict}</span>` +
-      `<span class="oa-time">${ts}</span>` +
-      (CDM_ROLE === "admin" ? `<button class="item-del" data-type="alert" data-id="${a.id}" title="Dismiss">×</button>` : "") +
-      `</div>` +
-      `<div class="oa-reason">${a.reasoning}</div>` +
-      `<div class="oa-meta">${a.sensorId} · ${(a.radiusM / 1000).toFixed(0)} km radius</div>`;
+
+    if (item._kind === "sensor") {
+      const delType = item._simulated ? "sim-alert" : "alert";
+      li.className = `official-alert-item type-${item.type}${item._simulated ? " oa-simulated" : ""}`;
+      li.innerHTML =
+        `<div class="oa-header">` +
+          `<span class="oa-verdict" style="color:${color}">${item._simulated ? "⚡ SIM — " : ""}${item.verdict}</span>` +
+          `<span class="oa-time">${ts}</span>` +
+          `<button class="item-del" data-type="${delType}" data-id="${item.id}" title="Dismiss">×</button>` +
+        `</div>` +
+        `<div class="oa-reason">${item.reasoning}</div>` +
+        `<div class="oa-meta">Sensor ${item.sensorId} · ${(item.radiusM / 1000).toFixed(0)} km radius</div>`;
+    } else {
+      const emoji = item.type === "wildfire" ? "🔥" : "🌊";
+      li.className = `official-alert-item type-${item.type} oa-user-report`;
+      li.innerHTML =
+        `<div class="oa-header">` +
+          `<span class="oa-verdict" style="color:${color}">${emoji} User Report — Confirmed</span>` +
+          `<span class="oa-time">${ts}</span>` +
+          (CDM_ROLE === "admin" ? `<button class="item-del" data-type="report" data-id="${item.id}" title="Dismiss">×</button>` : "") +
+        `</div>` +
+        `<div class="oa-meta">${item.lat.toFixed(3)}, ${item.lng.toFixed(3)}</div>`;
+    }
     officialAlertListEl.appendChild(li);
   }
 }
@@ -431,14 +453,16 @@ function removeReport(id) {
 }
 
 function refreshReportList() {
-  const reports = [...reportViews.values()].filter(r => r.status !== "dismissed").sort((a, b) => new Date(b.ts) - new Date(a.ts));
-  reportCountEl.textContent = reports.filter(r => r.status === "pending").length;
-  reportListEl.innerHTML = reports.length ? "" : '<li class="log-empty">No reports yet.</li>';
+  // Confirmed reports move to Official Alerts — only show pending here
+  const reports = [...reportViews.values()]
+    .filter(r => r.status === "pending")
+    .sort((a, b) => new Date(b.ts) - new Date(a.ts));
+  reportCountEl.textContent = reports.length;
+  reportListEl.innerHTML = reports.length ? "" : '<li class="log-empty">No pending reports.</li>';
   for (const r of reports) {
     const emoji = r.type === "wildfire" ? "🔥" : "🌊";
     const typeLabel = r.type === "wildfire" ? "Wildfire" : "Flood";
     const ts = new Date(r.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    const statusColor = r.status === "pending" ? "var(--pending)" : "var(--sensor)";
     const li = document.createElement("li");
     li.className = `report-item type-${r.type}`;
     let html =
@@ -446,11 +470,10 @@ function refreshReportList() {
       `<span class="report-body">` +
         `<strong>${typeLabel} Report</strong>` +
         `<span class="report-coords">${r.lat.toFixed(3)}, ${r.lng.toFixed(3)}</span>` +
-        `<span class="report-status" style="color:${statusColor}">${r.status}</span>` +
       `</span>` +
       `<span class="report-time">${ts}</span>`;
     if (CDM_ROLE === "admin") {
-      html += `<button class="item-action" data-action="confirm" data-id="${r.id}" title="Confirm">✓</button>`;
+      html += `<button class="item-action" data-action="confirm" data-id="${r.id}" title="Move to Official Alerts">✓</button>`;
       html += `<button class="item-del" data-type="report" data-id="${r.id}" title="Dismiss">×</button>`;
     }
     li.innerHTML = html;
@@ -524,19 +547,30 @@ function showAlarmResult(msg) {
   alarmResultBox.hidden = false;
   alarmResultBox.className = `alarm-result-box ${isSafe ? "result-safe" : isUnknown ? "" : "result-warning"}`;
   resetAlarmBtns();
+
+  // Log to activity log
+  const icon = isSafe ? "✅" : isUnknown ? "⚠" : "🔴";
+  const scenarioLabel = msg.scenario === "safe" ? "false alarm sim" : "real alarm sim";
+  appendLog(
+    `${icon} AI result for ${msg.sensorId} [${scenarioLabel}]: ${verdictLabel(msg.verdict)}${msg.reasoning ? " — " + msg.reasoning : ""}`,
+    isSafe ? "deny" : isUnknown ? "" : "confirm"
+  );
 }
 
-// Delete/confirm buttons for reports (admin only)
+// Delete/confirm/dismiss buttons
 document.addEventListener("click", (e) => {
-  if (CDM_ROLE !== "admin" || !ws || ws.readyState !== 1) return;
   const btn = e.target.closest(".item-action, .item-del");
   if (!btn) return;
   const { type, action, id } = btn.dataset;
+  // Simulated alerts: client-side dismiss only (no WS, no auth check needed)
+  if (type === "sim-alert") { removeOfficialAlert(id); return; }
+  // All other actions require admin + WS
+  if (CDM_ROLE !== "admin" || !ws || ws.readyState !== 1) return;
   if (action === "confirm") ws.send(JSON.stringify({ type: "report:confirm", id: Number(id) }));
-  else if (type === "report") ws.send(JSON.stringify({ type: "report:dismiss", id: Number(id) }));
+  else if (type === "report")  ws.send(JSON.stringify({ type: "report:dismiss", id: Number(id) }));
   else if (type === "station") ws.send(JSON.stringify({ type: "station:delete", id }));
-  else if (type === "sensor") ws.send(JSON.stringify({ type: "sensor:delete", id }));
-  else if (type === "alert") ws.send(JSON.stringify({ type: "alert:dismiss", id: Number(id) }));
+  else if (type === "sensor")  ws.send(JSON.stringify({ type: "sensor:delete", id }));
+  else if (type === "alert")   ws.send(JSON.stringify({ type: "alert:dismiss", id: Number(id) }));
 });
 
 // ===== Sensor detail panel =====
@@ -619,7 +653,6 @@ function applySnapshot(snap) {
   refreshStationList();
   refreshSensorList();
   refreshStationSelect();
-  refreshAlarmList();
   refreshOfficialAlertList();
   refreshReportList();
   refreshConnectivity();
@@ -655,11 +688,6 @@ function connect() {
           v.commRangeM = msg.commRangeM;
           v.commCircle.setRadius(msg.commRangeM);
           refreshConnectivity();
-          // Update detail panel if this sensor is selected
-          if (selectedSensorId === msg.id) {
-            detailRangeEl.value = msg.commRangeM;
-            detailRangeOut.textContent = fmtKm(msg.commRangeM);
-          }
         }
         break;
       }
@@ -686,12 +714,33 @@ function connect() {
         break;
       case "report:confirmed":
         upsertReport(msg.report);
+        refreshOfficialAlertList();
+        appendLog(`📍 User report confirmed — now in Official Alerts.`, "confirm");
         break;
       case "report:dismissed":
         removeReport(msg.id);
+        refreshOfficialAlertList();
         break;
       case "sensor:alarm_result":
         if (msg.sensorId === selectedSensorId) showAlarmResult(msg);
+        if (msg.verdict === "FOREST_FIRE_WARNING" || msg.verdict === "FLOOD_WARNING") {
+          const sv = sensorViews.get(msg.sensorId);
+          if (sv) {
+            const simId = `sim-${Date.now()}`;
+            upsertOfficialAlert({
+              id: simId,
+              sensorId: msg.sensorId,
+              type: msg.sensorType,
+              verdict: msg.verdict,
+              reasoning: msg.reasoning,
+              lat: sv.lat, lng: sv.lng,
+              radiusM: msg.sensorType === "wildfire" ? 8000 : 4000,
+              ts: new Date(),
+              active: true,
+              _simulated: true,
+            });
+          }
+        }
         break;
       case "error":   appendLog(`Error: ${msg.message}`, "deny"); break;
       case "log":     appendLog(msg.message, msg.kind, msg.time); break;
@@ -893,6 +942,42 @@ document.getElementById("admin-form").addEventListener("submit", async e => {
     submit.disabled = false; submit.textContent = "Sign in as Admin";
   }
 });
+
+// ===== Layers floating panel =====
+const layersPanel       = document.getElementById("layers-panel");
+const layersBody        = document.getElementById("layers-float-body");
+const layersCollapseBtn = document.getElementById("layers-collapse-btn");
+const layersDragHandle  = document.getElementById("layers-drag-handle");
+
+layersCollapseBtn.addEventListener("click", () => {
+  const collapsed = layersBody.hidden;
+  layersBody.hidden = !collapsed;
+  layersCollapseBtn.textContent = collapsed ? "−" : "+";
+});
+
+// Drag
+let dragging = false, dragOffX = 0, dragOffY = 0;
+layersDragHandle.addEventListener("mousedown", e => {
+  if (e.target === layersCollapseBtn) return;
+  dragging = true;
+  const rect = layersPanel.getBoundingClientRect();
+  dragOffX = e.clientX - rect.left;
+  dragOffY = e.clientY - rect.top;
+  layersPanel.style.transition = "none";
+  e.preventDefault();
+});
+document.addEventListener("mousemove", e => {
+  if (!dragging) return;
+  const mapRect = layersPanel.parentElement.getBoundingClientRect();
+  let x = e.clientX - mapRect.left - dragOffX;
+  let y = e.clientY - mapRect.top  - dragOffY;
+  x = Math.max(0, Math.min(mapRect.width  - layersPanel.offsetWidth,  x));
+  y = Math.max(0, Math.min(mapRect.height - layersPanel.offsetHeight, y));
+  layersPanel.style.left   = x + "px";
+  layersPanel.style.top    = y + "px";
+  layersPanel.style.bottom = "auto";
+});
+document.addEventListener("mouseup", () => { dragging = false; });
 
 // ===== Boot =====
 (async () => {

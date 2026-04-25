@@ -10,7 +10,7 @@
     integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
     crossorigin=""
   />
-  <link rel="stylesheet" href="style.css?v=8" />
+  <link rel="stylesheet" href="style.css?v=11" />
 </head>
 <body class="dark">
   <header>
@@ -53,8 +53,6 @@
   <div id="report-modal" class="modal-overlay" hidden>
     <div class="modal-card report-modal">
       <button id="report-modal-close-btn" class="modal-close" title="Close">×</button>
-
-      <!-- Step 1: Select type -->
       <div id="report-step-1" class="report-step">
         <h2>Report Hazard</h2>
         <p class="login-sub">What did you observe?</p>
@@ -71,57 +69,60 @@
           </div>
         </div>
       </div>
-
     </div>
   </div>
 
   <main class="map-page">
     <div class="map-area">
       <div id="map"></div>
-      <!-- Floating hint shown while placing a report (not a modal, doesn't block map) -->
+
+      <!-- Floating placement hint -->
       <div id="report-placement-hint" class="placement-hint" hidden>
         <span id="report-hint-label">🔥 Click map to mark hazard location</span>
         <button id="report-cancel-btn" class="hint-cancel">✕ Cancel</button>
+      </div>
+
+      <!-- Floating layers panel (bottom-left) -->
+      <div id="layers-panel" class="layers-float">
+        <div class="layers-float-head" id="layers-drag-handle">
+          <span>Layers</span>
+          <button id="layers-collapse-btn" class="layers-collapse" title="Collapse">−</button>
+        </div>
+        <div id="layers-float-body" class="layers-float-body">
+          <label class="check">
+            <input type="checkbox" id="filter-wildfire" checked />
+            <span class="dot fire"></span> Wildfire sensors
+          </label>
+          <label class="check">
+            <input type="checkbox" id="filter-flood" checked />
+            <span class="dot flood"></span> Flood sensors
+          </label>
+          <label class="check">
+            <input type="checkbox" id="filter-stations" checked />
+            <span class="dot station"></span> Signal stations
+          </label>
+          <label class="check">
+            <input type="checkbox" id="filter-sensor-comm" checked />
+            <span class="dot sensor-comm"></span> Comm ranges
+          </label>
+          <label class="check">
+            <input type="checkbox" id="filter-sensor-radius" />
+            <span class="dot sensor-radius"></span> Detection radii
+          </label>
+        </div>
       </div>
     </div>
 
     <aside class="control-panel">
 
-      <!-- Layers -->
-      <section class="panel-section">
-        <h3>Layers</h3>
-        <label class="check">
-          <input type="checkbox" id="filter-wildfire" checked />
-          <span class="dot fire"></span> Wildfire sensors
-        </label>
-        <label class="check">
-          <input type="checkbox" id="filter-flood" checked />
-          <span class="dot flood"></span> Flood sensors
-        </label>
-        <label class="check">
-          <input type="checkbox" id="filter-stations" checked />
-          <span class="dot station"></span> Signal stations
-        </label>
-        <label class="check">
-          <input type="checkbox" id="filter-sensor-comm" checked />
-          <span class="dot sensor-comm"></span> Sensor comm ranges
-        </label>
-        <label class="check">
-          <input type="checkbox" id="filter-sensor-radius" />
-          <span class="dot sensor-radius"></span> Sensor detection radii
-        </label>
-      </section>
-
-      <!-- Sensor detail (appears on sensor click) -->
+      <!-- Sensor detail (shown on sensor click) -->
       <section class="panel-section" id="sensor-detail-section" hidden>
         <div class="panel-section-head">
           <h3 style="margin-bottom:0">Sensor <span id="detail-id"></span></h3>
           <button id="detail-close" class="detail-close" title="Close">×</button>
         </div>
         <div id="detail-conn" class="detail-conn-badge"></div>
-
-        <!-- Simulate alarms (visible to all users) -->
-        <div id="detail-fake-alarm-wrap" style="margin-top:0.75rem;display:flex;flex-direction:column;gap:0.4rem">
+        <div style="margin-top:0.65rem;display:flex;flex-direction:column;gap:0.4rem">
           <button id="detail-fake-alarm-btn"       class="btn btn-full btn-alarm">⚡ Simulate Real Alarm</button>
           <button id="detail-fake-false-alarm-btn" class="btn btn-full btn-safe">✓ Simulate False Alarm</button>
           <div id="detail-alarm-result" class="alarm-result-box" hidden>
@@ -159,26 +160,9 @@
           </select>
         </label>
         <button id="place-sensor-btn" class="btn">Click map to place</button>
-        <p class="hint">Hover a sensor to see live readings.</p>
       </section>
 
-      <!-- Signal stations list -->
-      <section class="panel-section">
-        <h3>Signal Stations <span id="station-count" class="count">0</span></h3>
-        <ul id="station-list" class="item-list">
-          <li class="log-empty">No stations yet.</li>
-        </ul>
-      </section>
-
-      <!-- Sensors list -->
-      <section class="panel-section">
-        <h3>Sensors <span id="sensor-count" class="count">0</span></h3>
-        <ul id="sensor-list" class="item-list">
-          <li class="log-empty">No sensors yet.</li>
-        </ul>
-      </section>
-
-      <!-- Official alerts -->
+      <!-- Official alerts (everyone) -->
       <section class="panel-section">
         <h3>🚨 Official Alerts <span id="official-alert-count" class="count">0</span></h3>
         <ul id="official-alert-list" class="alarm-list official-alert-list">
@@ -186,7 +170,7 @@
         </ul>
       </section>
 
-      <!-- User reports -->
+      <!-- User reports (everyone) -->
       <section class="panel-section">
         <h3>📍 User Reports <span id="report-count" class="count">0</span></h3>
         <ul id="report-list" class="item-list">
@@ -194,16 +178,24 @@
         </ul>
       </section>
 
-      <!-- Alarms -->
-      <section class="panel-section">
-        <h3>Alarms <span id="alarm-count" class="count">0</span></h3>
-        <ul id="alarm-list" class="alarm-list">
-          <li class="log-empty">No alarms.</li>
+      <!-- Signal stations list (admin only) -->
+      <section class="panel-section hidden" id="station-list-section">
+        <h3>Signal Stations <span id="station-count" class="count">0</span></h3>
+        <ul id="station-list" class="item-list">
+          <li class="log-empty">No stations yet.</li>
         </ul>
       </section>
 
-      <!-- Activity log -->
-      <section class="panel-section">
+      <!-- Sensors list (admin only) -->
+      <section class="panel-section hidden" id="sensor-list-section">
+        <h3>Sensors <span id="sensor-count" class="count">0</span></h3>
+        <ul id="sensor-list" class="item-list">
+          <li class="log-empty">No sensors yet.</li>
+        </ul>
+      </section>
+
+      <!-- Activity log (admin only) -->
+      <section class="panel-section hidden" id="activity-log-section">
         <h3>Activity log</h3>
         <ul id="activity-log" class="log">
           <li class="log-empty">No activity yet.</li>
@@ -218,7 +210,7 @@
     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
     crossorigin=""
   ></script>
-  <script src="ui-config.js?v=8"></script>
-  <script src="client.js?v=8"></script>
+  <script src="ui-config.js?v=11"></script>
+  <script src="client.js?v=11"></script>
 </body>
 </html>

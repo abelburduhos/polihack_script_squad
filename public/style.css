@@ -338,24 +338,75 @@ main.map-page {
 }
 .hint-cancel:hover { color: var(--confirm); border-color: var(--confirm); }
 
+/* Floating layers panel */
+.layers-float {
+  position: absolute;
+  bottom: 1.5rem;
+  left: 1rem;
+  z-index: 400;
+  background: rgba(10, 14, 20, 0.92);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: var(--shadow-md);
+  min-width: 160px;
+  max-width: 260px;
+  overflow: hidden;
+  pointer-events: auto;
+}
+.layers-float-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.45rem 0.7rem;
+  cursor: grab;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  user-select: none;
+}
+.layers-float-head:active { cursor: grabbing; }
+.layers-collapse {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 0.1rem;
+  flex-shrink: 0;
+}
+.layers-collapse:hover { color: var(--text); }
+.layers-float-body {
+  padding: 0.6rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
 /* Control panel */
 .control-panel {
-  width: 340px;
+  width: 300px;
+  min-width: 240px;
   border-left: 1px solid var(--border);
   background: linear-gradient(180deg, var(--surface), var(--bg-elev));
-  padding: 1.5rem;
+  padding: 1rem 1.1rem;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 1.6rem;
+  gap: 1.2rem;
 }
 .panel-section h3 {
-  font-size: 0.74rem;
+  font-size: 0.72rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.1em;
   color: var(--muted);
-  margin-bottom: 0.85rem;
+  margin-bottom: 0.7rem;
 }
 .hint {
   font-size: 0.78rem;
@@ -1401,6 +1452,8 @@ table.metrics .unit { color: var(--muted); font-size: 0.7rem; }
 }
 .official-alert-item.type-wildfire { border-left: 3px solid var(--fire);  background: rgba(255,51,0,0.07); }
 .official-alert-item.type-flood    { border-left: 3px solid var(--flood); background: rgba(26,136,255,0.07); }
+.official-alert-item.oa-user-report { opacity: 0.85; border-style: dashed; }
+.official-alert-item.oa-simulated   { opacity: 0.9; border-style: dotted; }
 
 .oa-header {
   display: flex;
