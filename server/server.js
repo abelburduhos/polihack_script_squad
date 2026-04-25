@@ -94,6 +94,17 @@ async function main() {
     res.json({ ok });
   });
 
+  // ----- User Reports (public, no auth required) -----
+  app.post("/api/reports", async (req, res) => {
+    const { type, lat, lng } = req.body || {};
+    if (!type || typeof lat !== "number" || typeof lng !== "number")
+      return res.status(400).json({ error: "type, lat, lng required" });
+    try {
+      const r = await sim.createReport({ type, lat, lng });
+      res.json({ id: r.id });
+    } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+
   // ----- WebSocket -----
   const server = http.createServer(app);
   const wss    = new WebSocketServer({ server, clientTracking: false });
@@ -116,9 +127,9 @@ async function main() {
       try { msg = JSON.parse(raw.toString()); } catch { return; }
 
       // Read-only ops allowed for everyone
-      // Write ops: admin only
-      const isWrite = ["station:create","station:delete","sensor:create","sensor:delete"].includes(msg.type);
-      if (isWrite && ws.role !== "admin") {
+      // Write ops: admin only (reports allowed for all)
+      const isAdminWrite = ["station:create","station:delete","sensor:create","sensor:delete","report:confirm","report:dismiss"].includes(msg.type);
+      if (isAdminWrite && ws.role !== "admin") {
         ws.send(JSON.stringify({ type: "error", message: "Admin access required" }));
         return;
       }
@@ -145,6 +156,29 @@ async function main() {
           }
           sim.updateSensorRange(msg.id, msg.commRangeM).catch(console.error);
           break;
+        case "alert:dismiss":
+          if (ws.role !== "admin") {
+            ws.send(JSON.stringify({ type: "error", message: "Admin required" }));
+            break;
+          }
+          sim.dismissOfficialAlert(msg.id).catch(console.error);
+          break;
+        case "sensor:fake_alarm":
+          sim.testSensorAlarm(msg.id, ws, "alarm").catch(console.error);
+          break;
+        case "sensor:fake_false_alarm":
+          sim.testSensorAlarm(msg.id, ws, "safe").catch(console.error);
+          break;
+        case "report:create":
+          sim.createReport({ type: msg.reportType, lat: msg.lat, lng: msg.lng })
+            .catch((err) => ws.send(JSON.stringify({ type: "error", message: err.message })));
+          break;
+        case "report:confirm":
+          sim.confirmReport(msg.id).catch(console.error);
+          break;
+        case "report:dismiss":
+          sim.dismissReport(msg.id).catch(console.error);
+          break;
       }
     });
 
@@ -157,7 +191,10 @@ async function main() {
   server.listen(PORT, () => {
     console.log(`Climate Disaster Monitor — http://localhost:${PORT}`);
     if (!process.env.WEATHER_API_KEY) {
-      console.log("[weather] WEATHER_API_KEY not set — alarms will default to REAL verdict");
+      console.log("[weather] WEATHER_API_KEY not set — weather check skipped");
+    }
+    if (!process.env.OPENAI_API_KEY) {
+      console.log("[ai] OPENAI_API_KEY not set — AI analysis disabled, alarms default to REAL");
     }
   });
 }

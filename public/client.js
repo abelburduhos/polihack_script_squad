@@ -44,6 +44,7 @@ L.tileLayer(CONFIG.map.tile.url, {
 }).addTo(map);
 
 // ===== Layers =====
+const alertLayer        = L.layerGroup().addTo(map);   // official alert circles (top)
 const wildfireLayer     = L.layerGroup().addTo(map);
 const floodLayer        = L.layerGroup().addTo(map);
 const stationLayer      = L.layerGroup().addTo(map);
@@ -149,9 +150,11 @@ function refreshConnectivity() {
 }
 
 // ===== View models =====
-const stationViews = new Map();
-const sensorViews  = new Map();
-const alarmMap     = new Map();
+const stationViews      = new Map();
+const sensorViews       = new Map();
+const alarmMap          = new Map();
+const officialAlertViews = new Map();  // alertId → { circle, ...data }
+const reportViews       = new Map();   // reportId → { marker, ...data }
 
 const STATION_BODY_M = 600; // geo-scaled icon radius for signal stations
 
@@ -331,14 +334,209 @@ function refreshAlarmList() {
   }
 }
 
-// Delete buttons (admin only)
+// ===== Official alerts (map + panel) =====
+const officialAlertCountEl = document.getElementById("official-alert-count");
+const officialAlertListEl  = document.getElementById("official-alert-list");
+
+function upsertOfficialAlert(a) {
+  let v = officialAlertViews.get(a.id);
+  const color = a.type === "wildfire" ? "#ff3300" : "#1a88ff";
+
+  if (!v) {
+    const circle = L.circle([a.lat, a.lng], {
+      radius: a.radiusM,
+      color, weight: 2.5, opacity: 0.85,
+      fillColor: color, fillOpacity: 0.12,
+      dashArray: null,
+      interactive: true,
+      className: "alert-circle",
+    }).addTo(alertLayer)
+      .bindTooltip(
+        `<div class="station-tip"><strong>${a.verdict}</strong><br>${a.reasoning}<br><em style="color:var(--muted)">${a.sensorId} · ${(a.radiusM/1000).toFixed(0)} km radius</em></div>`,
+        { direction: "top", sticky: true, className: "sensor-tooltip" }
+      );
+    v = { ...a, circle };
+    officialAlertViews.set(a.id, v);
+  } else {
+    Object.assign(v, a);
+  }
+  refreshOfficialAlertList();
+}
+
+function removeOfficialAlert(id) {
+  const v = officialAlertViews.get(id);
+  if (!v) return;
+  alertLayer.removeLayer(v.circle);
+  officialAlertViews.delete(id);
+  refreshOfficialAlertList();
+}
+
+function refreshOfficialAlertList() {
+  const alerts = [...officialAlertViews.values()].filter(a => a.active).sort((a, b) => new Date(b.ts) - new Date(a.ts));
+  officialAlertCountEl.textContent = alerts.length;
+  officialAlertListEl.innerHTML = alerts.length ? "" : '<li class="log-empty">No active alerts.</li>';
+  for (const a of alerts) {
+    const color = a.type === "wildfire" ? "var(--fire)" : "var(--flood)";
+    const li = document.createElement("li");
+    li.className = `official-alert-item type-${a.type}`;
+    const ts = new Date(a.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    li.innerHTML =
+      `<div class="oa-header">` +
+      `<span class="oa-verdict" style="color:${color}">${a.verdict}</span>` +
+      `<span class="oa-time">${ts}</span>` +
+      (CDM_ROLE === "admin" ? `<button class="item-del" data-type="alert" data-id="${a.id}" title="Dismiss">×</button>` : "") +
+      `</div>` +
+      `<div class="oa-reason">${a.reasoning}</div>` +
+      `<div class="oa-meta">${a.sensorId} · ${(a.radiusM / 1000).toFixed(0)} km radius</div>`;
+    officialAlertListEl.appendChild(li);
+  }
+}
+
+// ===== User reports (map + panel) =====
+const reportCountEl = document.getElementById("report-count");
+const reportListEl  = document.getElementById("report-list");
+const reportLayer   = L.layerGroup().addTo(map);
+
+function upsertReport(r) {
+  let v = reportViews.get(r.id);
+  const baseColor = r.type === "wildfire" ? "#ff6b3a" : "#4aa3d6";
+  const emoji = r.type === "wildfire" ? "🔥" : "🌊";
+  const typeLabel = r.type === "wildfire" ? "Wildfire" : "Flood";
+
+  if (!v) {
+    const icon = L.divIcon({
+      html: `<div class="report-marker" style="background:${baseColor}">!</div>`,
+      iconSize: [22, 22],
+      iconAnchor: [11, 11],
+      className: "report-divicon",
+    });
+    const marker = L.marker([r.lat, r.lng], { icon })
+      .addTo(reportLayer)
+      .bindTooltip(`${emoji} ${typeLabel} Report`, { sticky: true, className: "sensor-tooltip" });
+    marker.on("click", () => map.panTo([r.lat, r.lng]));
+    v = { ...r, marker, baseColor };
+    reportViews.set(r.id, v);
+  } else {
+    Object.assign(v, r);
+  }
+  refreshReportList();
+}
+
+function removeReport(id) {
+  const v = reportViews.get(id);
+  if (!v) return;
+  reportLayer.removeLayer(v.marker);
+  reportViews.delete(id);
+  refreshReportList();
+}
+
+function refreshReportList() {
+  const reports = [...reportViews.values()].filter(r => r.status !== "dismissed").sort((a, b) => new Date(b.ts) - new Date(a.ts));
+  reportCountEl.textContent = reports.filter(r => r.status === "pending").length;
+  reportListEl.innerHTML = reports.length ? "" : '<li class="log-empty">No reports yet.</li>';
+  for (const r of reports) {
+    const emoji = r.type === "wildfire" ? "🔥" : "🌊";
+    const typeLabel = r.type === "wildfire" ? "Wildfire" : "Flood";
+    const ts = new Date(r.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const statusColor = r.status === "pending" ? "var(--pending)" : "var(--sensor)";
+    const li = document.createElement("li");
+    li.className = `report-item type-${r.type}`;
+    let html =
+      `<span class="report-icon">${emoji}</span>` +
+      `<span class="report-body">` +
+        `<strong>${typeLabel} Report</strong>` +
+        `<span class="report-coords">${r.lat.toFixed(3)}, ${r.lng.toFixed(3)}</span>` +
+        `<span class="report-status" style="color:${statusColor}">${r.status}</span>` +
+      `</span>` +
+      `<span class="report-time">${ts}</span>`;
+    if (CDM_ROLE === "admin") {
+      html += `<button class="item-action" data-action="confirm" data-id="${r.id}" title="Confirm">✓</button>`;
+      html += `<button class="item-del" data-type="report" data-id="${r.id}" title="Dismiss">×</button>`;
+    }
+    li.innerHTML = html;
+    reportListEl.appendChild(li);
+  }
+}
+
+// ===== Sensor fake alarm =====
+function verdictColor(v) {
+  if (v === "FOREST_FIRE_WARNING") return "var(--fire)";
+  if (v === "FLOOD_WARNING")       return "var(--flood)";
+  if (v === "SAFE")                return "var(--sensor)";
+  return "var(--muted)";
+}
+function verdictLabel(v) {
+  if (v === "FOREST_FIRE_WARNING") return "🔥 REAL ALARM — Wildfire confirmed";
+  if (v === "FLOOD_WARNING")       return "🌊 REAL ALARM — Flood confirmed";
+  if (v === "SAFE")                return "✅ FALSE ALARM — No threat detected";
+  if (v === "UNKNOWN")             return "⚠ No API key — set OPENAI_API_KEY in .env";
+  return `⚠ ${v}`;
+}
+
+const fakeAlarmBtn      = document.getElementById("detail-fake-alarm-btn");
+const fakeFalseAlarmBtn = document.getElementById("detail-fake-false-alarm-btn");
+const alarmResultBox    = document.getElementById("detail-alarm-result");
+const alarmMetricsEl    = document.getElementById("detail-alarm-metrics");
+const alarmVerdictEl    = document.getElementById("detail-alarm-verdict");
+const alarmReasoningEl  = document.getElementById("detail-alarm-reasoning");
+
+function resetAlarmBtns() {
+  fakeAlarmBtn.disabled      = false;
+  fakeFalseAlarmBtn.disabled = false;
+  fakeAlarmBtn.textContent      = "⚡ Simulate Real Alarm";
+  fakeFalseAlarmBtn.textContent = "✓ Simulate False Alarm";
+}
+
+function setAlarmBtnsLoading() {
+  fakeAlarmBtn.disabled = fakeFalseAlarmBtn.disabled = true;
+  fakeAlarmBtn.textContent = fakeFalseAlarmBtn.textContent = "⏳ Querying AI…";
+}
+
+fakeAlarmBtn.addEventListener("click", () => {
+  if (!selectedSensorId || !ws || ws.readyState !== 1) return;
+  setAlarmBtnsLoading();
+  alarmResultBox.hidden = true;
+  ws.send(JSON.stringify({ type: "sensor:fake_alarm", id: selectedSensorId }));
+});
+
+fakeFalseAlarmBtn.addEventListener("click", () => {
+  if (!selectedSensorId || !ws || ws.readyState !== 1) return;
+  setAlarmBtnsLoading();
+  alarmResultBox.hidden = true;
+  ws.send(JSON.stringify({ type: "sensor:fake_false_alarm", id: selectedSensorId }));
+});
+
+function showAlarmResult(msg) {
+  const m = msg.metrics || {};
+  let metricsText = "";
+  if (msg.sensorType === "wildfire") {
+    metricsText = `CO₂: ${m.co2_ppm} ppm · Temp: ${m.temp_c}°C · Humidity: ${m.humidity_pct}% · Smoke: ${m.smoke_index}`;
+  } else {
+    metricsText = `Level: ${m.level_cm} cm · Flow: ${m.flow_m3s} m³/s · Turbidity: ${m.turbidity_ntu} NTU`;
+  }
+  const isSafe    = msg.verdict === "SAFE";
+  const isUnknown = msg.verdict === "UNKNOWN";
+  const color = verdictColor(msg.verdict);
+  alarmMetricsEl.textContent   = `[${msg.scenario === "safe" ? "safe metrics" : "alarm metrics"}] ${metricsText}`;
+  alarmVerdictEl.textContent   = verdictLabel(msg.verdict);
+  alarmVerdictEl.style.color   = color;
+  alarmReasoningEl.textContent = msg.reasoning || "";
+  alarmResultBox.hidden = false;
+  alarmResultBox.className = `alarm-result-box ${isSafe ? "result-safe" : isUnknown ? "" : "result-warning"}`;
+  resetAlarmBtns();
+}
+
+// Delete/confirm buttons for reports (admin only)
 document.addEventListener("click", (e) => {
-  if (CDM_ROLE !== "admin") return;
-  const btn = e.target.closest(".item-del");
-  if (!btn || !ws || ws.readyState !== 1) return;
-  const { type, id } = btn.dataset;
-  if (type === "station") ws.send(JSON.stringify({ type: "station:delete", id }));
+  if (CDM_ROLE !== "admin" || !ws || ws.readyState !== 1) return;
+  const btn = e.target.closest(".item-action, .item-del");
+  if (!btn) return;
+  const { type, action, id } = btn.dataset;
+  if (action === "confirm") ws.send(JSON.stringify({ type: "report:confirm", id: Number(id) }));
+  else if (type === "report") ws.send(JSON.stringify({ type: "report:dismiss", id: Number(id) }));
+  else if (type === "station") ws.send(JSON.stringify({ type: "station:delete", id }));
   else if (type === "sensor") ws.send(JSON.stringify({ type: "sensor:delete", id }));
+  else if (type === "alert") ws.send(JSON.stringify({ type: "alert:dismiss", id: Number(id) }));
 });
 
 // ===== Sensor detail panel =====
@@ -346,10 +544,6 @@ let selectedSensorId = null;
 const detailSection  = document.getElementById("sensor-detail-section");
 const detailIdEl     = document.getElementById("detail-id");
 const detailConnEl   = document.getElementById("detail-conn");
-const detailRangeWrap = document.getElementById("detail-range-wrap");
-const detailRangeEl  = document.getElementById("detail-range");
-const detailRangeOut = document.getElementById("detail-range-out");
-
 function showSensorDetail(sensorId) {
   const v = sensorViews.get(sensorId);
   if (!v) return;
@@ -357,41 +551,19 @@ function showSensorDetail(sensorId) {
   detailIdEl.textContent = sensorId;
   detailConnEl.textContent = v.connected === false ? "⚠ Out of range — no path to station" : "✓ Connected";
   detailConnEl.className = `detail-conn-badge ${v.connected === false ? "conn-no" : "conn-yes"}`;
-
-  if (CDM_ROLE === "admin") {
-    detailRangeWrap.hidden = false;
-    detailRangeEl.value = v.commRangeM ?? 2000;
-    detailRangeOut.textContent = fmtKm(Number(detailRangeEl.value));
-  } else {
-    detailRangeWrap.hidden = true;
-  }
+  alarmResultBox.hidden = true;
+  resetAlarmBtns();
   detailSection.hidden = false;
 }
 
 function hideSensorDetail() {
   selectedSensorId = null;
   detailSection.hidden = true;
+  alarmResultBox.hidden = true;
+  resetAlarmBtns();
 }
 
 document.getElementById("detail-close").addEventListener("click", hideSensorDetail);
-
-const fmtKm = (m) => `${(m / 1000).toFixed(1)} km`;
-
-detailRangeEl.addEventListener("input", () => {
-  detailRangeOut.textContent = fmtKm(parseInt(detailRangeEl.value, 10));
-  // Live preview: update comm circle radius locally
-  const v = sensorViews.get(selectedSensorId);
-  if (v) v.commCircle.setRadius(parseInt(detailRangeEl.value, 10));
-});
-
-detailRangeEl.addEventListener("change", () => {
-  if (!selectedSensorId || !ws || ws.readyState !== 1) return;
-  ws.send(JSON.stringify({
-    type: "sensor:update_range",
-    id: selectedSensorId,
-    commRangeM: parseInt(detailRangeEl.value, 10),
-  }));
-});
 
 // ===== Snapshot =====
 function applySnapshot(snap) {
@@ -404,6 +576,8 @@ function applySnapshot(snap) {
   }
   sensorViews.clear();
   alarmMap.clear();
+  for (const v of reportViews.values()) reportLayer.removeLayer(v.marker);
+  reportViews.clear();
 
   for (const st of snap.stations || []) {
     const body = L.circle([st.lat, st.lng], {
@@ -435,11 +609,19 @@ function applySnapshot(snap) {
     marker.on("click", () => showSensorDetail(sid));
     sensorViews.set(s.id, { ...s, marker, commCircle, radiusCircle, baseColor, layer });
   }
-  for (const a of snap.alarms || []) alarmMap.set(a.id, a);
+  for (const v of officialAlertViews.values()) alertLayer.removeLayer(v.circle);
+  officialAlertViews.clear();
+
+  for (const a of snap.alarms         || []) alarmMap.set(a.id, a);
+  for (const a of snap.officialAlerts || []) if (a.active) upsertOfficialAlert(a);
+  for (const r of snap.reports        || []) upsertReport(r);
+
   refreshStationList();
   refreshSensorList();
   refreshStationSelect();
   refreshAlarmList();
+  refreshOfficialAlertList();
+  refreshReportList();
   refreshConnectivity();
 }
 
@@ -493,6 +675,24 @@ function connect() {
           if (v) upsertSensor({ ...v, alarmActive: false });
         }
         break;
+      case "alert:official":
+        upsertOfficialAlert(msg.alert);
+        break;
+      case "alert:dismissed":
+        removeOfficialAlert(msg.id);
+        break;
+      case "report:new":
+        upsertReport(msg.report);
+        break;
+      case "report:confirmed":
+        upsertReport(msg.report);
+        break;
+      case "report:dismissed":
+        removeReport(msg.id);
+        break;
+      case "sensor:alarm_result":
+        if (msg.sensorId === selectedSensorId) showAlarmResult(msg);
+        break;
       case "error":   appendLog(`Error: ${msg.message}`, "deny"); break;
       case "log":     appendLog(msg.message, msg.kind, msg.time); break;
     }
@@ -512,8 +712,9 @@ bindFilter("filter-stations",      [stationLayer]);
 bindFilter("filter-sensor-comm",   [sensorCommLayer]);
 bindFilter("filter-sensor-radius", [sensorRadiusLayer], false);
 
-// ===== Admin placement (admin only) =====
+// ===== Placement mode (admin placement + user reports) =====
 let placingMode = "none";
+let reportType  = null;  // "wildfire" or "flood" for report mode
 let preview     = null;
 
 const placeStationBtn = document.getElementById("place-station-btn");
@@ -528,19 +729,30 @@ function setPlacingMode(mode) {
   if (placeStationBtn) placeStationBtn.textContent = mode === "station" ? "Cancel" : "Click map to place";
   if (placeSensorBtn)  placeSensorBtn.textContent  = mode === "sensor"  ? "Cancel" : "Click map to place";
   map.getContainer().classList.toggle("placing", mode !== "none");
+  if (mode !== "report") {
+    reportType = null;
+    document.getElementById("report-modal").hidden = true;
+    const hint = document.getElementById("report-placement-hint");
+    if (hint) hint.hidden = true;
+  }
 }
 
 placeStationBtn?.addEventListener("click", () => setPlacingMode(placingMode === "station" ? "none" : "station"));
 placeSensorBtn?.addEventListener("click",  () => setPlacingMode(placingMode === "sensor"  ? "none" : "sensor"));
 
 map.on("mousemove", e => {
-  if (placingMode === "none" || CDM_ROLE !== "admin") return;
+  if (placingMode === "none") return;
+  if ((placingMode === "station" || placingMode === "sensor") && CDM_ROLE !== "admin") return;
   const latlng = e.latlng;
   if (placingMode === "station") {
     if (!preview) preview = L.circle(latlng, { radius: STATION_BODY_M * 3, color: "#a78bfa", weight: 2, opacity: 0.7, fillColor: "#a78bfa", fillOpacity: 0.08, dashArray: "5 5", interactive: false }).addTo(map);
     else preview.setLatLng(latlng);
-  } else {
+  } else if (placingMode === "sensor") {
     const isWF = sensorTypeEl.value === "wildfire", c = isWF ? "#ff6b3a" : "#4aa3d6", detR = isWF ? 300 : 800;
+    if (!preview) preview = L.circle(latlng, { radius: detR, color: c, weight: 1.5, opacity: 0.65, fillColor: c, fillOpacity: 0.08, interactive: false }).addTo(map);
+    else { preview.setLatLng(latlng); preview.setRadius(detR); preview.setStyle({ color: c, fillColor: c }); }
+  } else if (placingMode === "report") {
+    const isWF = reportType === "wildfire", c = isWF ? "#ff6b3a" : "#4aa3d6", detR = isWF ? 300 : 800;
     if (!preview) preview = L.circle(latlng, { radius: detR, color: c, weight: 1.5, opacity: 0.65, fillColor: c, fillOpacity: 0.08, interactive: false }).addTo(map);
     else { preview.setLatLng(latlng); preview.setRadius(detR); preview.setStyle({ color: c, fillColor: c }); }
   }
@@ -554,15 +766,72 @@ sensorTypeEl?.addEventListener("change", () => {
 });
 
 map.on("click", e => {
-  if (placingMode === "none" || CDM_ROLE !== "admin" || !ws || ws.readyState !== 1) return;
+  if (placingMode === "none" || !ws || ws.readyState !== 1) return;
   const { lat, lng } = e.latlng;
+
+  // Admin-only placements
+  if ((placingMode === "station" || placingMode === "sensor") && CDM_ROLE !== "admin") return;
+
   if (placingMode === "station") {
     ws.send(JSON.stringify({ type: "station:create", name: document.getElementById("station-name")?.value.trim() || null, lat, lng }));
     const nameEl = document.getElementById("station-name");
     if (nameEl) nameEl.value = "";
-  } else {
+  } else if (placingMode === "sensor") {
     ws.send(JSON.stringify({ type: "sensor:create", sensorType: sensorTypeEl.value, stationId: document.getElementById("sensor-station")?.value || null, lat, lng }));
+  } else if (placingMode === "report") {
+    ws.send(JSON.stringify({ type: "report:create", reportType, lat, lng }));
+    appendLog(`${reportType === "wildfire" ? "🔥" : "🌊"} Hazard report submitted — check User Reports panel.`, "info");
+    hidePlacementHint();
   }
+  setPlacingMode("none");
+});
+
+// ===== Report modal (hazard wizard) =====
+const reportBtn       = document.getElementById("report-btn");
+const reportModal     = document.getElementById("report-modal");
+const step1           = document.getElementById("report-step-1");
+const placementHint   = document.getElementById("report-placement-hint");
+const hintLabel       = document.getElementById("report-hint-label");
+
+function showPlacementHint(type) {
+  const emoji = type === "wildfire" ? "🔥" : "🌊";
+  const label = type === "wildfire" ? "Wildfire" : "Flood";
+  hintLabel.textContent = `${emoji} Click map to mark ${label} hazard location`;
+  placementHint.hidden = false;
+}
+function hidePlacementHint() {
+  placementHint.hidden = true;
+}
+
+reportBtn.addEventListener("click", () => {
+  reportModal.hidden = false;
+  step1.hidden = false;
+  reportType = null;
+});
+
+document.getElementById("report-modal-close-btn").addEventListener("click", () => {
+  reportModal.hidden = true;
+  setPlacingMode("none");
+});
+reportModal.addEventListener("click", e => { if (e.target === reportModal) { reportModal.hidden = true; setPlacingMode("none"); } });
+
+// Hazard card selection — close modal, show map hint, enter placement mode
+document.getElementById("hazard-wildfire").addEventListener("click", () => {
+  reportType = "wildfire";
+  reportModal.hidden = true;
+  showPlacementHint("wildfire");
+  setPlacingMode("report");
+});
+
+document.getElementById("hazard-flood").addEventListener("click", () => {
+  reportType = "flood";
+  reportModal.hidden = true;
+  showPlacementHint("flood");
+  setPlacingMode("report");
+});
+
+document.getElementById("report-cancel-btn").addEventListener("click", () => {
+  hidePlacementHint();
   setPlacingMode("none");
 });
 

@@ -1,14 +1,17 @@
-// Simulation: signal stations + individual sensors, alarm lifecycle, weather eval.
+// Simulation: signal stations + individual sensors, alarm lifecycle, weather + AI eval.
 
 const db      = require("./db");
 const config  = require("./config");
 const weather = require("./weather");
+const ai      = require("./ai-analysis");
 
 const state = {
-  stations: new Map(),  // stationId  → station
-  sensors:  new Map(),  // sensorId   → sensor
-  alarms:   new Map(),  // alarmId    → alarm
-  clients:  new Set(),
+  stations:       new Map(),  // stationId  → station
+  sensors:        new Map(),  // sensorId   → sensor
+  alarms:         new Map(),  // alarmId    → alarm
+  officialAlerts: new Map(),  // alertId    → official alert
+  reports:        new Map(),  // reportId   → user report
+  clients:        new Set(),
   stationCounter: 0,
   sensorCounter:  0,
 };
@@ -48,11 +51,62 @@ function snapAlarm(a) {
     ts: a.ts, verdict: a.verdict, weatherReason: a.weatherReason,
   };
 }
+function snapOfficialAlert(a) {
+  return {
+    id: a.id, sensorId: a.sensorId, type: a.type,
+    verdict: a.verdict, reasoning: a.reasoning,
+    lat: a.lat, lng: a.lng, radiusM: a.radiusM,
+    ts: a.ts, active: a.active,
+  };
+}
+function snapReport(r) {
+  return {
+    id: r.id, type: r.type, lat: r.lat, lng: r.lng,
+    ts: r.ts, status: r.status,
+  };
+}
+
+function generateAlarmMetrics(type) {
+  if (type === "wildfire") {
+    return {
+      co2_ppm:      Math.round(rnd(580, 820)),
+      temp_c:       Math.round(rnd(42, 68) * 10) / 10,
+      humidity_pct: Math.round(rnd(6, 22) * 10) / 10,
+      smoke_index:  Math.round(rnd(0.72, 0.97) * 100) / 100,
+    };
+  } else {
+    return {
+      level_cm:      Math.round(rnd(550, 1200)),
+      flow_m3s:      Math.round(rnd(1600, 5200)),
+      temp_c:        Math.round(rnd(12, 21) * 10) / 10,
+      turbidity_ntu: Math.round(rnd(80, 260)),
+    };
+  }
+}
+function generateSafeMetrics(type) {
+  if (type === "wildfire") {
+    return {
+      co2_ppm:      Math.round(rnd(395, 435)),
+      temp_c:       Math.round(rnd(16, 27) * 10) / 10,
+      humidity_pct: Math.round(rnd(48, 72) * 10) / 10,
+      smoke_index:  Math.round(rnd(0.01, 0.07) * 100) / 100,
+    };
+  } else {
+    return {
+      level_cm:      Math.round(rnd(40, 180)),
+      flow_m3s:      Math.round(rnd(80, 380)),
+      temp_c:        Math.round(rnd(13, 22) * 10) / 10,
+      turbidity_ntu: Math.round(rnd(3, 18)),
+    };
+  }
+}
 function buildSnapshot() {
   return {
-    stations: [...state.stations.values()].map(snapStation),
-    sensors:  [...state.sensors.values()].map(snapSensor),
-    alarms:   [...state.alarms.values()].map(snapAlarm),
+    stations:       [...state.stations.values()].map(snapStation),
+    sensors:        [...state.sensors.values()].map(snapSensor),
+    alarms:         [...state.alarms.values()].map(snapAlarm),
+    officialAlerts: [...state.officialAlerts.values()].map(snapOfficialAlert),
+    reports:        [...state.reports.values()].map(snapReport),
   };
 }
 
@@ -143,15 +197,24 @@ async function resolveAlarm(alarmId, sensor) {
   const alarm = state.alarms.get(alarmId);
   if (!alarm || alarm.verdict !== "pending") return;
 
-  const ev = await weather.evaluateAlarm(sensor.type, sensor.lat, sensor.lng);
-  const verdict = ev.confirmed === null ? "real" : ev.confirmed ? "real" : "false_alarm";
+  // Run weather check + AI analysis in parallel
+  const [ev, aiResult] = await Promise.all([
+    weather.evaluateAlarm(sensor.type, sensor.lat, sensor.lng),
+    ai.analyzeAlarm(sensor.type, sensor.metrics || {}, sensor.lat, sensor.lng),
+  ]);
 
-  alarm.verdict = verdict;
-  alarm.weatherReason = ev.reason;
+  // AI WARNING overrides weather denial; weather/AI both needed to clear as false alarm
+  const aiWarning  = aiResult.verdict !== "SAFE" && aiResult.verdict !== "UNKNOWN";
+  const weatherOk  = ev.confirmed !== false; // true or null (no key configured)
+  const verdict    = (aiWarning || weatherOk) ? "real" : "false_alarm";
+  const reasonText = `Weather: ${ev.reason} | AI: ${aiResult.verdict} — ${aiResult.reasoning}`;
+
+  alarm.verdict      = verdict;
+  alarm.weatherReason = reasonText;
 
   await db.query(
     `UPDATE alarms SET verdict = $1, weather_data = $2::jsonb, weather_reason = $3 WHERE id = $4`,
-    [verdict, JSON.stringify(ev.weather), ev.reason, alarmId]
+    [verdict, JSON.stringify({ weather: ev.weather, ai: aiResult }), reasonText, alarmId]
   );
 
   if (verdict === "false_alarm") {
@@ -162,10 +225,51 @@ async function resolveAlarm(alarmId, sensor) {
   broadcast({ type: "alarm:verdict", alarm: snapAlarm(alarm) });
   logEvent(
     verdict === "real"
-      ? `🔴 REAL: ${sensor.id} — ${ev.reason}`
-      : `✅ False alarm: ${sensor.id} — ${ev.reason}`,
+      ? `🔴 REAL: ${sensor.id} — ${reasonText}`
+      : `✅ False alarm: ${sensor.id} — ${reasonText}`,
     verdict === "real" ? "alarm-real" : "alarm-false"
   );
+
+  // Issue official alert if AI confirms a warning
+  if (aiWarning) {
+    await issueOfficialAlert(sensor, aiResult).catch(err => console.error("[official-alert]", err.message));
+  }
+}
+
+// Affected area radius: wildfire spreads far, flood affects river corridor
+const ALERT_RADIUS = { wildfire: 8000, flood: 4000 };
+
+async function issueOfficialAlert(sensor, aiResult) {
+  const radiusM = ALERT_RADIUS[sensor.type] ?? 5000;
+
+  const ins = await db.query(
+    `INSERT INTO official_alerts (sensor_id, type, verdict, reasoning, lat, lng, radius_m)
+     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, ts`,
+    [sensor.id, sensor.type, aiResult.verdict, aiResult.reasoning, sensor.lat, sensor.lng, radiusM]
+  );
+
+  const alert = {
+    id: ins.rows[0].id, sensorId: sensor.id, type: sensor.type,
+    verdict: aiResult.verdict, reasoning: aiResult.reasoning,
+    lat: sensor.lat, lng: sensor.lng, radiusM,
+    ts: ins.rows[0].ts, active: true,
+  };
+
+  state.officialAlerts.set(alert.id, alert);
+  broadcast({ type: "alert:official", alert: snapOfficialAlert(alert) });
+  logEvent(
+    `🚨 OFFICIAL ALERT: ${aiResult.verdict} — ${aiResult.reasoning} (sensor ${sensor.id}, radius ${(radiusM/1000).toFixed(0)} km)`,
+    "alert-official"
+  );
+}
+
+async function dismissOfficialAlert(id) {
+  const a = state.officialAlerts.get(id);
+  if (!a) return false;
+  a.active = false;
+  await db.query("UPDATE official_alerts SET active = FALSE WHERE id = $1", [id]);
+  broadcast({ type: "alert:dismissed", id });
+  return true;
 }
 
 // ----- IoT packet builder (sensor → station → server format) -----
@@ -253,8 +357,33 @@ async function loadFromDb() {
     });
   }
 
+  const oaRows = await db.query(
+    `SELECT id, sensor_id, type, verdict, reasoning, lat, lng, radius_m, ts, active
+     FROM official_alerts WHERE active = TRUE ORDER BY ts DESC LIMIT 50`
+  );
+  for (const r of oaRows.rows) {
+    state.officialAlerts.set(r.id, {
+      id: r.id, sensorId: r.sensor_id, type: r.type,
+      verdict: r.verdict, reasoning: r.reasoning,
+      lat: parseFloat(r.lat), lng: parseFloat(r.lng),
+      radiusM: parseFloat(r.radius_m), ts: r.ts, active: r.active,
+    });
+  }
+
+  const urRows = await db.query(
+    "SELECT id, type, lat, lng, ts, status FROM user_reports WHERE status != 'dismissed' ORDER BY ts DESC LIMIT 100"
+  );
+  for (const r of urRows.rows) {
+    const id = Number(r.id);
+    state.reports.set(id, {
+      id, type: r.type,
+      lat: parseFloat(r.lat), lng: parseFloat(r.lng),
+      ts: r.ts, status: r.status,
+    });
+  }
+
   console.log(
-    `[boot] ${state.stations.size} stations, ${state.sensors.size} sensors, ${state.alarms.size} alarms`
+    `[boot] ${state.stations.size} stations, ${state.sensors.size} sensors, ${state.alarms.size} alarms, ${state.officialAlerts.size} active alerts, ${state.reports.size} user reports`
   );
 }
 
@@ -331,6 +460,62 @@ async function updateSensorRange(id, rangeM) {
   return true;
 }
 
+// ----- User Reports CRUD -----
+async function createReport({ type, lat, lng }) {
+  if (!["wildfire", "flood"].includes(type)) throw new Error("bad report type");
+  const result = await db.query(
+    "INSERT INTO user_reports (type, lat, lng) VALUES ($1, $2, $3) RETURNING id, ts",
+    [type, lat, lng]
+  );
+  const row = result.rows[0];
+  const report = { id: Number(row.id), type, lat, lng, ts: row.ts, status: "pending" };
+  state.reports.set(report.id, report);
+  broadcast({ type: "report:new", report: snapReport(report) });
+  logEvent(`Hazard report (${type}) submitted at ${lat.toFixed(3)}, ${lng.toFixed(3)}.`);
+  return report;
+}
+
+// ----- Sensor fake alarm (AI analysis only, no DB record) -----
+async function testSensorAlarm(sensorId, clientWs, scenario = "alarm") {
+  const sensor = state.sensors.get(sensorId);
+  if (!sensor) return;
+  const metrics = scenario === "safe" ? generateSafeMetrics(sensor.type) : generateAlarmMetrics(sensor.type);
+  logEvent(`Sensor ${sensorId} ${scenario === "safe" ? "false" : "real"} alarm simulation — querying AI…`);
+
+  const result = await ai.analyzeAlarm(sensor.type, metrics, sensor.lat, sensor.lng);
+  const payload = {
+    type: "sensor:alarm_result",
+    sensorId,
+    sensorType: sensor.type,
+    scenario,
+    metrics,
+    verdict:   result.verdict,
+    reasoning: result.reasoning,
+  };
+  if (clientWs && clientWs.readyState === 1) clientWs.send(JSON.stringify(payload));
+}
+
+async function confirmReport(id) {
+  const r = state.reports.get(id);
+  if (!r) return false;
+  r.status = "confirmed";
+  await db.query("UPDATE user_reports SET status = 'confirmed' WHERE id = $1", [id]);
+  broadcast({ type: "report:confirmed", report: snapReport(r) });
+  logEvent(`Hazard report ${id} confirmed by admin.`);
+  return true;
+}
+
+async function dismissReport(id) {
+  const r = state.reports.get(id);
+  if (!r) return false;
+  r.status = "dismissed";
+  await db.query("UPDATE user_reports SET status = 'dismissed' WHERE id = $1", [id]);
+  broadcast({ type: "report:dismissed", id });
+  state.reports.delete(id);
+  logEvent(`Hazard report ${id} dismissed by admin.`);
+  return true;
+}
+
 // ----- Periodic persistence -----
 function startPersistence() {
   setInterval(async () => {
@@ -361,4 +546,7 @@ async function start() {
 module.exports = {
   start, buildSnapshot, attachClient, detachClient,
   createStation, deleteStation, createSensor, deleteSensor, updateSensorRange,
+  dismissOfficialAlert,
+  createReport, confirmReport, dismissReport,
+  testSensorAlarm,
 };

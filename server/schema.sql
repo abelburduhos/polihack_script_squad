@@ -65,6 +65,37 @@ CREATE TABLE IF NOT EXISTS alarms (
   weather_reason   TEXT
 );
 
+-- Official alerts — issued when AI confirms a real emergency.
+CREATE TABLE IF NOT EXISTS official_alerts (
+  id         BIGSERIAL PRIMARY KEY,
+  sensor_id  TEXT NOT NULL REFERENCES sensors(id) ON DELETE CASCADE,
+  ts         TIMESTAMPTZ DEFAULT NOW(),
+  type       TEXT NOT NULL,
+  verdict    TEXT NOT NULL,
+  reasoning  TEXT,
+  lat        DOUBLE PRECISION NOT NULL,
+  lng        DOUBLE PRECISION NOT NULL,
+  radius_m   DOUBLE PRECISION NOT NULL,
+  active     BOOLEAN DEFAULT TRUE
+);
+
+-- User hazard reports — citizen-submitted fire/flood observations.
+CREATE TABLE IF NOT EXISTS user_reports (
+  id        BIGSERIAL PRIMARY KEY,
+  type      TEXT NOT NULL CHECK (type IN ('wildfire', 'flood')),
+  lat       DOUBLE PRECISION NOT NULL,
+  lng       DOUBLE PRECISION NOT NULL,
+  ts        TIMESTAMPTZ DEFAULT NOW(),
+  status    TEXT NOT NULL CHECK (status IN ('pending', 'confirmed', 'dismissed')) DEFAULT 'pending',
+  metrics   JSONB,
+  verdict   TEXT,
+  reasoning TEXT
+);
+-- Migrations for existing tables
+ALTER TABLE user_reports ADD COLUMN IF NOT EXISTS metrics   JSONB;
+ALTER TABLE user_reports ADD COLUMN IF NOT EXISTS verdict   TEXT;
+ALTER TABLE user_reports ADD COLUMN IF NOT EXISTS reasoning TEXT;
+
 CREATE TABLE IF NOT EXISTS events (
   id      BIGSERIAL PRIMARY KEY,
   ts      TIMESTAMPTZ DEFAULT NOW(),
@@ -72,8 +103,12 @@ CREATE TABLE IF NOT EXISTS events (
   message TEXT
 );
 
+CREATE INDEX IF NOT EXISTS idx_official_alerts_ts ON official_alerts(ts DESC);
+CREATE INDEX IF NOT EXISTS idx_official_alerts_active ON official_alerts(active) WHERE active = TRUE;
 CREATE INDEX IF NOT EXISTS idx_readings_sensor_ts ON sensor_readings(sensor_id, ts DESC);
 CREATE INDEX IF NOT EXISTS idx_sensors_station    ON sensors(station_id);
 CREATE INDEX IF NOT EXISTS idx_alarms_sensor_ts   ON alarms(sensor_id, ts DESC);
 CREATE INDEX IF NOT EXISTS idx_alarms_pending     ON alarms(verdict) WHERE verdict = 'pending';
+CREATE INDEX IF NOT EXISTS idx_user_reports_ts   ON user_reports(ts DESC);
+CREATE INDEX IF NOT EXISTS idx_user_reports_status ON user_reports(status) WHERE status != 'dismissed';
 CREATE INDEX IF NOT EXISTS idx_events_ts          ON events(ts DESC);
